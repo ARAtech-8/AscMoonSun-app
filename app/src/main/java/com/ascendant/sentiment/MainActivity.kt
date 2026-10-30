@@ -111,6 +111,8 @@ fun MainScreen(
     var showCards by remember { mutableStateOf(false) }     // v6.7: breakdown, active Midheaven / Ascendant and exact hits cards
     var showSky by remember { mutableStateOf(false) }     // v7.0: sky field card now off by default
     var showHelio by remember { mutableStateOf(true) }    // v7.0: heliocentric Sun field week card
+    var moonNatal by remember { mutableStateOf(true) }    // v7.3: natal aspects in the Moon mood
+    var showPlutoAsp by remember { mutableStateOf(true) } // v7.3: Pluto-only Ascendant pane
     var showMerc by remember { mutableStateOf(true) }     // v7.2: Mercury aspects week card
     var showMercAsp by remember { mutableStateOf(true) }  // v7.2: Mercury-only Ascendant pane
     var showHelioAsp by remember { mutableStateOf(true) } // v7.0: Sun aspects panel under the detrended Ascendant      // v6.1: sky field week card
@@ -157,8 +159,8 @@ fun MainScreen(
     val detrAsc = remember(series, orbFalloff) { AstroEngine.detrendedAxisSum(series, false, orbFalloff) }  // v6.5
     // v5.0: Moon mood for the local calendar day of the inspected time (recomputed only when the day changes)
     val dayBounds = remember(inspectedTimeMs, selectedTimezone) { AstroEngine.dayBoundsMs(inspectedTimeMs, selectedTimezone) }
-    val moodPoints = remember(dayBounds.first, dayBounds.second, showMood) {
-        if (showMood) AstroEngine.calculateMoodSeries(dayBounds.first, dayBounds.second) else emptyList()
+    val moodPoints = remember(dayBounds.first, dayBounds.second, showMood, moonNatal) {
+        if (showMood) AstroEngine.calculateMoodSeries(dayBounds.first, dayBounds.second, includeNatal = moonNatal) else emptyList()
     }
     val macd = remember(series) { AstroEngine.macdOfNet(series) }          // v4.3
     // v6.1: turning points (void-of-course Moon, stations) and the sky field per bar
@@ -184,6 +186,9 @@ fun MainScreen(
     }
     val mercHitsNow = remember(inspectedTimeMs / 300_000L, showMerc, useSd, usePm, taintAllMm, orbFalloff) {
         if (showMerc) AstroEngine.mercuryHits((inspectedTimeMs / 300_000L) * 300_000L, 3.0, useSd, usePm, taintAllMm, orbFalloff) else emptyList()
+    }
+    val plutoAsc = remember(series, orbFalloff, showPlutoAsp) {
+        if (showPlutoAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Pluto") else null
     }
     val mercAsc = remember(series, orbFalloff, showMercAsp) {
         if (showMercAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Mercury") else null
@@ -448,6 +453,8 @@ fun MainScreen(
                 ResonanceSwitch("Sun-only Ascendant pane (helio trend tint)", showHelioAsp, Modifier.fillMaxWidth()) { onHaptic(); showHelioAsp = it }
                 ResonanceSwitch("Mercury card (aspects to Mercury, week)", showMerc, Modifier.fillMaxWidth()) { onHaptic(); showMerc = it }
                 ResonanceSwitch("Mercury-only Ascendant pane (Mercury tint)", showMercAsp, Modifier.fillMaxWidth()) { onHaptic(); showMercAsp = it }
+                ResonanceSwitch("Pluto-only Ascendant pane", showPlutoAsp, Modifier.fillMaxWidth()) { onHaptic(); showPlutoAsp = it }
+                ResonanceSwitch("Natal aspects in Moon mood", moonNatal, Modifier.fillMaxWidth()) { onHaptic(); moonNatal = it }
                 ResonanceSwitch("Moon in sky card natal line", moonInNatal, Modifier.fillMaxWidth()) { onHaptic(); moonInNatal = it }
             }
         }
@@ -658,6 +665,27 @@ fun MainScreen(
                     }
                 }
 
+                if (showPlutoAsp && plutoAsc != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val plutoNow = currentBar?.aspects?.filter { it.planetName == "Pluto" }?.minByOrNull { it.orbDiff }
+                    val vPluto = plutoAsc.detr.getOrNull(curIdx)
+                    PaneHeader(
+                        title = "PLUTO ONLY · ASPECTS TO THE ASCENDANT  (detrended)",
+                        value = plutoNow?.let { "♇ ${it.aspectAngle}°  " + (vPluto?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Pluto aspect",
+                        valueColor = plutoNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
+                        SunAscendantPane(
+                            data = plutoAsc,
+                            firstBarMs = series.first().timeMs,
+                            inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
+                            view = chartView,
+                            zoom = zoom
+                        )
+                    }
+                }
+
                 if (showMercAsp && mercAsc != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     val mercNow = currentBar?.aspects?.filter { it.planetName == "Mercury" }?.minByOrNull { it.orbDiff }
@@ -843,6 +871,7 @@ fun MainScreen(
                 inspectedTimeMs = inspectedTimeMs,
                 nowMs = nowMs,
                 timeZoneId = selectedTimezone,
+                natalOn = moonNatal,
                 onInspectTime = { t ->
                     isLive = false
                     if (series.isNotEmpty() && (t < series.first().timeMs || t > series.last().timeMs)) centerTimeMs = t

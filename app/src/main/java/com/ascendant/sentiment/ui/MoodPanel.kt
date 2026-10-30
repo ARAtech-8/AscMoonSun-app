@@ -101,7 +101,8 @@ fun MoodCard(
     inspectedTimeMs: Long,
     nowMs: Long,
     timeZoneId: String,
-    onInspectTime: (Long) -> Unit
+    onInspectTime: (Long) -> Unit,
+    natalOn: Boolean = true
 ) {
     if (points.isEmpty()) return
 
@@ -181,6 +182,23 @@ fun MoodCard(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = chipColor
+                )
+            }
+
+            // v7.3: where the Moon is in the zodiac at the inspected time
+            run {
+                val lon = cur.moonLon
+                val signIdx = ((kotlin.math.floor(lon / 30.0).toInt() % 12) + 12) % 12
+                val inSign = lon - signIdx * 30.0
+                val deg = inSign.toInt()
+                val min = ((inSign - deg) * 60.0).toInt()
+                Text(
+                    text = "☽ in ${AstroEngine.ZODIAC_GLYPHS[signIdx]} ${AstroEngine.ZODIAC[signIdx]} %d°%02d′".format(deg, min) +
+                        if (natalOn) "" else "   ·   natal aspects off",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Slate100,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
             }
 
@@ -284,6 +302,22 @@ fun MoodCard(
                     }
 
                     drawLine(Color(0xFF475569), Offset(left - 4.dp.toPx(), yZero), Offset(left + plotW, yZero), 1.5f)
+
+                    // v7.3: sign changes of the Moon (ingress), dashed line with the new sign's glyph
+                    run {
+                        val glyphPaint = android.graphics.Paint().apply {
+                            isAntiAlias = true; textSize = 12.sp.toPx(); color = Slate100.toArgb()
+                        }
+                        for (i in 1 until n) {
+                            val a = ((kotlin.math.floor(points[i - 1].moonLon / 30.0).toInt() % 12) + 12) % 12
+                            val b = ((kotlin.math.floor(points[i].moonLon / 30.0).toInt() % 12) + 12) % 12
+                            if (a != b) {
+                                val x = left + i * cellW
+                                drawLine(Slate400.copy(alpha = 0.6f), Offset(x, top), Offset(x, top + plotH), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 6f), 0f))
+                                drawContext.canvas.nativeCanvas.drawText(AstroEngine.ZODIAC_GLYPHS[b], x + 3.dp.toPx(), top + 12.dp.toPx(), glyphPaint)
+                            }
+                        }
+                    }
 
                     // soft fill from zero to the value
                     for (i in 0 until n) {

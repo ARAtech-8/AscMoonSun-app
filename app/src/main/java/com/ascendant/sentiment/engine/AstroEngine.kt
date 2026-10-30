@@ -684,7 +684,7 @@ object AstroEngine {
      * Each aspect: strength = Wp x Cj x (1 - orb/limit), then it goes to its planet's class.
      * temp = 100 x tanh((hot - cold) / (8 x (1 + neutral/10)))   electric = 100 x tanh(electric / 6)
      */
-    fun calculateMood(ms: Long, orbLimit: Double = 3.0): MoodPoint {
+    fun calculateMood(ms: Long, orbLimit: Double = 3.0, includeNatal: Boolean = true): MoodPoint {
         val longs = calculatePlanetaryPositions(ms)
         val moonIdx = PLANETS.indexOfFirst { it.name == "Moon" }
         val moon = longs[moonIdx]
@@ -716,21 +716,21 @@ object AstroEngine {
 
         for (i in PLANETS.indices) {
             if (i != moonIdx) addAspects(i, false, longs[i])   // transiting planets (not the Moon itself)
-            addAspects(i, true, NATAL_LONGS[i])                // birth chart points, natal Moon included
+            if (includeNatal) addAspects(i, true, NATAL_LONGS[i])   // birth chart points, natal Moon included (v7.3: switchable)
         }
 
         val dilution = 1.0 + neut / MOOD_NEUTRAL_DAMP
         val temp = 100.0 * tanh((heat - cold) / (MOOD_TEMP_SCALE * dilution))
         val electric = 100.0 * tanh(elec / MOOD_ELECTRIC_SCALE)
-        return MoodPoint(ms, temp, electric, hits.sortedByDescending { it.strength })
+        return MoodPoint(ms, temp, electric, hits.sortedByDescending { it.strength }, moon)
     }
 
     /** Mood every 5 minutes from startMs (inclusive) to endMs (exclusive). */
-    fun calculateMoodSeries(startMs: Long, endMs: Long, stepMs: Long = 300_000L, orbLimit: Double = 3.0): List<MoodPoint> {
+    fun calculateMoodSeries(startMs: Long, endMs: Long, stepMs: Long = 300_000L, orbLimit: Double = 3.0, includeNatal: Boolean = true): List<MoodPoint> {
         val out = ArrayList<MoodPoint>()
         var t = startMs
         while (t < endMs) {
-            out.add(calculateMood(t, orbLimit))
+            out.add(calculateMood(t, orbLimit, includeNatal))
             t += stepMs
         }
         return out

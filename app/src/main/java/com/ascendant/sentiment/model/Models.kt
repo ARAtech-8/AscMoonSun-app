@@ -148,7 +148,8 @@ class MoodPoint(
     val timeMs: Long,
     val temp: Double,
     val electric: Double,
-    val hits: List<MoodHit>
+    val hits: List<MoodHit>,
+    val moonLon: Double = 0.0   // v7.3: the Moon's ecliptic longitude, for the zodiac position
 ) {
     /** No Moon aspect in orb at all. */
     val quiet: Boolean
