@@ -258,3 +258,14 @@ class HelioWeek(
  * 1-hour average) per 5-minute bar, and the aspect angle that colours the bar (-1 = none).
  */
 class SunAscSeries(val detr: DoubleArray, val angle: IntArray)
+
+/**
+ * v7.2: week of 6-hour bars of the geocentric running total of aspects to Mercury, with the detrended total
+ * (total minus its trailing 5-day average) and that 5-day average.
+ */
+class MercuryWeek(
+    val bars: List<HelioBar>,
+    val detr: DoubleArray,
+    val avg: DoubleArray,
+    val barMs: Long
+)

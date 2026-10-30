@@ -111,6 +111,8 @@ fun MainScreen(
     var showCards by remember { mutableStateOf(false) }     // v6.7: breakdown, active Midheaven / Ascendant and exact hits cards
     var showSky by remember { mutableStateOf(false) }     // v7.0: sky field card now off by default
     var showHelio by remember { mutableStateOf(true) }    // v7.0: heliocentric Sun field week card
+    var showMerc by remember { mutableStateOf(true) }     // v7.2: Mercury aspects week card
+    var showMercAsp by remember { mutableStateOf(true) }  // v7.2: Mercury-only Ascendant pane
     var showHelioAsp by remember { mutableStateOf(true) } // v7.0: Sun aspects panel under the detrended Ascendant      // v6.1: sky field week card
     var skyTintOn by remember { mutableStateOf(true) }    // v6.1: sky tint on the detrended pane
 
@@ -174,6 +176,20 @@ fun MainScreen(
     val sunAsc = remember(series, orbFalloff, showHelioAsp) { if (showHelioAsp) AstroEngine.sunAscendantSeries(series, orbFalloff) else null }
     val helioTrend = remember(series, useSd, usePm, taintAllMm, orbFalloff, showHelioAsp) {
         if (showHelioAsp) AstroEngine.helioTotalSeries(series, 3.0, useSd, usePm, taintAllMm, orbFalloff) else null
+    }
+    val mercWeek = remember(weekBounds.first, showMerc, useSd, usePm, taintAllMm, orbFalloff) {
+        if (showMerc) AstroEngine.calculateMercuryWeek(
+            startMs = weekBounds.first, useSd = useSd, usePm = usePm, taintAllMm = taintAllMm, orbFalloff = orbFalloff
+        ) else null
+    }
+    val mercHitsNow = remember(inspectedTimeMs / 300_000L, showMerc, useSd, usePm, taintAllMm, orbFalloff) {
+        if (showMerc) AstroEngine.mercuryHits((inspectedTimeMs / 300_000L) * 300_000L, 3.0, useSd, usePm, taintAllMm, orbFalloff) else emptyList()
+    }
+    val mercAsc = remember(series, orbFalloff, showMercAsp) {
+        if (showMercAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Mercury") else null
+    }
+    val mercTrend = remember(series, useSd, usePm, taintAllMm, orbFalloff, showMercAsp) {
+        if (showMercAsp) AstroEngine.mercuryTotalSeries(series, 3.0, useSd, usePm, taintAllMm, orbFalloff) else null
     }
     val skyWeek = remember(weekBounds.first, showSky, moonInNatal, useSd, usePm, taintAllMm, orbFalloff, pairBoost) {
         if (showSky) AstroEngine.calculateSkyWeek(
@@ -430,6 +446,8 @@ fun MainScreen(
                     ResonanceSwitch("Sky trend tint", skyTintOn, Modifier.weight(1f)) { onHaptic(); skyTintOn = it }
                 }
                 ResonanceSwitch("Sun-only Ascendant pane (helio trend tint)", showHelioAsp, Modifier.fillMaxWidth()) { onHaptic(); showHelioAsp = it }
+                ResonanceSwitch("Mercury card (aspects to Mercury, week)", showMerc, Modifier.fillMaxWidth()) { onHaptic(); showMerc = it }
+                ResonanceSwitch("Mercury-only Ascendant pane (Mercury tint)", showMercAsp, Modifier.fillMaxWidth()) { onHaptic(); showMercAsp = it }
                 ResonanceSwitch("Moon in sky card natal line", moonInNatal, Modifier.fillMaxWidth()) { onHaptic(); moonInNatal = it }
             }
         }
@@ -640,6 +658,28 @@ fun MainScreen(
                     }
                 }
 
+                if (showMercAsp && mercAsc != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val mercNow = currentBar?.aspects?.filter { it.planetName == "Mercury" }?.minByOrNull { it.orbDiff }
+                    val vMerc = mercAsc.detr.getOrNull(curIdx)
+                    PaneHeader(
+                        title = "MERCURY ONLY · ASPECTS TO THE ASCENDANT  (detrended, tint = Mercury card)",
+                        value = mercNow?.let { "☿ ${it.aspectAngle}°  " + (vMerc?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Mercury aspect",
+                        valueColor = mercNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
+                        SunAscendantPane(
+                            data = mercAsc,
+                            firstBarMs = series.first().timeMs,
+                            inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
+                            view = chartView,
+                            zoom = zoom,
+                            trend = mercTrend
+                        )
+                    }
+                }
+
                 if (showDetrMc) {
                     Spacer(modifier = Modifier.height(8.dp))
                     val vMc = detrMc.getOrNull(curIdx)
@@ -816,6 +856,22 @@ fun MainScreen(
             HelioFieldCard(
                 week = helioWeek,
                 hitsNow = helioHitsNow,
+                inspectedTimeMs = inspectedTimeMs,
+                nowMs = nowMs,
+                timeZoneId = selectedTimezone,
+                onInspectTime = { t ->
+                    isLive = false
+                    if (series.isNotEmpty() && (t < series.first().timeMs || t > series.last().timeMs)) centerTimeMs = t
+                    inspectedTimeMs = t
+                }
+            )
+        }
+
+        // v7.2: geocentric aspects to Mercury, week in 6-hour bars (below the heliocentric Sun card)
+        if (showMerc && mercWeek != null) {
+            MercuryFieldCard(
+                week = mercWeek,
+                hitsNow = mercHitsNow,
                 inspectedTimeMs = inspectedTimeMs,
                 nowMs = nowMs,
                 timeZoneId = selectedTimezone,

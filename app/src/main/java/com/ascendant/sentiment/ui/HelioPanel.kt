@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ascendant.sentiment.model.HelioHit
 import com.ascendant.sentiment.model.HelioWeek
+import com.ascendant.sentiment.model.MercuryWeek
 import com.ascendant.sentiment.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -298,5 +299,154 @@ fun SunAscendantPane(
         lab("+" + fmtScale(maxVal), maxVal, Emerald400.copy(alpha = 0.8f))
         lab("0", 0.0, Slate400)
         lab("−" + fmtScale(maxVal), -maxVal, Rose400.copy(alpha = 0.8f))
+    }
+}
+
+private val MercLine = Color(0xFF94A3B8)
+
+/**
+ * v7.2: geocentric aspects to Mercury as a running total for the whole week, 6-hour bars. Bold line = running total.
+ * Faint in the background: the detrended total (total minus its trailing 5-day average), as bars and a thin line.
+ */
+@Composable
+fun MercuryFieldCard(
+    week: MercuryWeek,
+    hitsNow: List<HelioHit>,
+    inspectedTimeMs: Long,
+    nowMs: Long,
+    timeZoneId: String,
+    onInspectTime: (Long) -> Unit
+) {
+    val bars = week.bars
+    if (bars.isEmpty()) return
+    val n = bars.size
+    val weekStart = bars.first().startMs
+    val weekEnd = weekStart + n * week.barMs
+    val selIdx = ((inspectedTimeMs - weekStart) / week.barMs).toInt().coerceIn(0, n - 1)
+    val cur = bars[selIdx]
+    val iHi = bars.indices.maxByOrNull { bars[it].total } ?: 0
+    val iLo = bars.indices.minByOrNull { bars[it].total } ?: 0
+    val timeFmt = remember(timeZoneId) { SimpleDateFormat("EEE HH:mm", Locale.US).apply { timeZone = TimeZone.getTimeZone(timeZoneId) } }
+    val dayFmt = remember(timeZoneId) { SimpleDateFormat("EEE d", Locale.US).apply { timeZone = TimeZone.getTimeZone(timeZoneId) } }
+    val onInspect = rememberUpdatedState(onInspectTime)
+    val maxLine = remember(week) { niceCeil(max(1.0, bars.maxOf { abs(it.total) } * 1.1)) }
+    val maxDetr = remember(week) { max(0.1, week.detr.maxOf { abs(it) }) * 1.1 }
+    val detrNow = week.detr[selIdx]
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(BorderDark))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("☿ ASPECTS TO MERCURY · WEEK (6h bars)", color = Slate400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(timeFmt.format(Date(cur.startMs)) + " bar", color = Slate400, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Total " + fmtH(cur.total),
+                color = if (cur.total >= 0) Emerald400 else Rose400, fontSize = 18.sp, fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Detrended (vs 5-day average) " + fmtH(detrNow) + if (detrNow > 0) " (above average)" else " (below average)",
+                color = Slate100, fontSize = 11.sp
+            )
+            Spacer(Modifier.height(8.dp))
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .weekScrub(week, n, weekStart, week.barMs, onInspect)
+            ) {
+                val left = 42.dp.toPx()
+                val right = 12.dp.toPx()
+                val top = 8.dp.toPx()
+                val bottom = 16.dp.toPx()
+                val plotW = size.width - left - right
+                val plotH = size.height - top - bottom
+                val cell = plotW / n
+                fun xOf(i: Int) = left + (i + 0.5f) * cell
+                fun yOf(v: Double) = (top + plotH / 2.0 * (1.0 - v / maxLine)).toFloat()
+                fun yD(v: Double) = (top + plotH / 2.0 * (1.0 - v / maxDetr)).toFloat()
+                val yZero = yOf(0.0)
+
+                // background: detrended total (own scale)
+                for (i in 0 until n) {
+                    val d = week.detr[i]
+                    val y = yD(d)
+                    val y0 = yD(0.0)
+                    drawRect(
+                        (if (d >= 0) Emerald500 else Rose500).copy(alpha = 0.22f),
+                        Offset(left + i * cell + 1f, min(y, y0)), Size(max(cell - 2f, 1f), max(abs(y - y0), 1f))
+                    )
+                }
+                val dp = Path()
+                for (i in 0 until n) { val x = xOf(i); val y = yD(week.detr[i]); if (i == 0) dp.moveTo(x, y) else dp.lineTo(x, y) }
+                drawPath(dp, HelioMacdCyan.copy(alpha = 0.35f), style = Stroke(width = 1.5f, cap = StrokeCap.Round))
+
+                listOf(1.0, -1.0).forEach { f ->
+                    drawLine(Color(0xFF475569).copy(alpha = 0.35f), Offset(left, yOf(f * maxLine)), Offset(left + plotW, yOf(f * maxLine)), 1f)
+                }
+                drawLine(Color(0xFF475569), Offset(left - 4.dp.toPx(), yZero), Offset(left + plotW, yZero), 1.5f)
+
+                var lastDay = ""
+                for (i in 0 until n) {
+                    val label = dayFmt.format(Date(bars[i].startMs))
+                    if (label != lastDay) {
+                        lastDay = label
+                        drawLine(Color(0xFF334155).copy(alpha = 0.6f), Offset(left + i * cell, top), Offset(left + i * cell, top + plotH), 1f)
+                        drawContext.canvas.nativeCanvas.drawText(
+                            label, left + i * cell + 3.dp.toPx(), size.height - 2.dp.toPx(),
+                            android.graphics.Paint().apply { isAntiAlias = true; textSize = 9.sp.toPx(); color = Slate400.toArgb() }
+                        )
+                    }
+                }
+
+                val p = Path()
+                for (i in 0 until n) { val x = xOf(i); val y = yOf(bars[i].total); if (i == 0) p.moveTo(x, y) else p.lineTo(x, y) }
+                drawPath(p, MercLine, style = Stroke(width = 3.6.dp.toPx(), cap = StrokeCap.Round))
+                drawCircle(Emerald400, 4.dp.toPx(), Offset(xOf(iHi), yOf(bars[iHi].total)))
+                drawCircle(Rose400, 4.dp.toPx(), Offset(xOf(iLo), yOf(bars[iLo].total)))
+
+                if (nowMs in weekStart until weekEnd) {
+                    val nx = left + ((nowMs - weekStart).toFloat() / (weekEnd - weekStart)) * plotW
+                    drawLine(Color(0xFFFBBF24).copy(alpha = 0.6f), Offset(nx, top), Offset(nx, top + plotH), 1.5f)
+                }
+                drawLine(Color.White, Offset(xOf(selIdx), top), Offset(xOf(selIdx), top + plotH), 2f)
+
+                val lp = android.graphics.Paint().apply { isAntiAlias = true; textSize = 9.sp.toPx(); textAlign = android.graphics.Paint.Align.RIGHT }
+                fun lab(t: String, v: Double, c: Color) {
+                    lp.color = c.toArgb()
+                    drawContext.canvas.nativeCanvas.drawText(t, left - 7.dp.toPx(), yOf(v) + lp.textSize * 0.35f, lp)
+                }
+                lab("+" + fmtScale(maxLine), maxLine, Emerald400.copy(alpha = 0.8f))
+                lab("0", 0.0, Slate400)
+                lab("−" + fmtScale(maxLine), -maxLine, Rose400.copy(alpha = 0.8f))
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "━ running total of geocentric aspects to Mercury · faint: total minus its 5-day average (bars and cyan line, own scale) · dots = week high / low",
+                color = Slate400, fontSize = 9.sp, lineHeight = 12.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Week high ${fmtH(bars[iHi].total)} (${timeFmt.format(Date(bars[iHi].startMs))})  ·  low ${fmtH(bars[iLo].total)} (${timeFmt.format(Date(bars[iLo].startMs))})",
+                color = Slate100, fontSize = 11.sp
+            )
+            if (hitsNow.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text("Aspects to Mercury at the cursor", color = Slate400, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                hitsNow.sortedByDescending { abs(it.value) }.take(6).forEach { h ->
+                    Text(
+                        "${h.glyph} ${h.planetName} ${h.aspectAngle}° ☿   ${fmtH(h.value)}",
+                        color = HelioAspectColors[h.aspectAngle] ?: Slate100, fontSize = 11.sp
+                    )
+                }
+            }
+        }
     }
 }

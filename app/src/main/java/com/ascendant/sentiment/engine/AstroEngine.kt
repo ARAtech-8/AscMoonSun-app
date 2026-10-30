@@ -1281,12 +1281,16 @@ object AstroEngine {
      * Sun's hits minus its trailing 1-hour average. The angle of each bar is the Sun aspect in orb (closest one);
      * on bars with no aspect in orb it stays at the last angle seen in the past hour, so the fading bars keep their colour.
      */
-    fun sunAscendantSeries(series: List<SentimentBar>, orbFalloff: Boolean, window: Int = DETREND_BARS): SunAscSeries {
+    fun sunAscendantSeries(series: List<SentimentBar>, orbFalloff: Boolean, window: Int = DETREND_BARS): SunAscSeries =
+        planetAscendantSeries(series, orbFalloff, "Sun", window)
+
+    /** v7.2: the same for any single planet's aspects to the Ascendant (Sun, Mercury). */
+    fun planetAscendantSeries(series: List<SentimentBar>, orbFalloff: Boolean, planetName: String, window: Int = DETREND_BARS): SunAscSeries {
         val n = series.size
         val raw = DoubleArray(n)
         val ang = IntArray(n) { -1 }
         for (i in 0 until n) {
-            val sun = series[i].aspects.filter { it.planetName == "Sun" }
+            val sun = series[i].aspects.filter { it.planetName == planetName }
             raw[i] = aspectSum(sun, orbFalloff)
             ang[i] = sun.minByOrNull { it.orbDiff }?.aspectAngle ?: -1
         }
@@ -1303,6 +1307,141 @@ object AstroEngine {
             a
         }
         return SunAscSeries(detr, colour)
+    }
+
+    // ---------------- v7.2: geocentric aspects to Mercury ----------------
+
+    /** Planets that aspect Mercury, with the heliocentric field's weights, plus the Sun at 5. Mercury is in the set too. */
+    val MERC_PLANETS = listOf(
+        PlanetDef("Pluto", "♇", 10, -1),
+        PlanetDef("Neptune", "♆", 3, 1),
+        PlanetDef("Uranus", "♅", 5, 0),
+        PlanetDef("Saturn", "♄", 9, -1),
+        PlanetDef("Jupiter", "♃", 9, 1),
+        PlanetDef("Mars", "♂", 7, 0),
+        PlanetDef("Venus", "♀", 6, 1),
+        PlanetDef("Mercury", "☿", 6, 0),
+        PlanetDef("Sun", "☉", 5, 0)
+    )
+    private val MERC_TARGET = MERC_PLANETS.indexOfFirst { it.name == "Mercury" }
+    private val MERC_SRC_IDX: IntArray by lazy { IntArray(MERC_PLANETS.size) { k -> PLANETS.indexOfFirst { it.name == MERC_PLANETS[k].name } } }
+
+    /** Geocentric longitudes aligned to MERC_PLANETS, taken from a full set of PLANETS longitudes. */
+    fun mercSetLongs(all: DoubleArray): DoubleArray = DoubleArray(MERC_PLANETS.size) { all[MERC_SRC_IDX[it]] }
+
+    private fun setTainted(planets: List<PlanetDef>, longs: DoubleArray, orbLimit: Double): BooleanArray =
+        BooleanArray(planets.size) { i ->
+            planets[i].defaultPolarity == 0 && planets.indices.any { j ->
+                if (j == i) false else {
+                    val angles: Collection<Int> = when (planets[j].defaultPolarity) {
+                        -1 -> ANGLES
+                        0 -> HARD_ANGLES
+                        else -> emptyList()
+                    }
+                    val s = sep(longs[i], longs[j])
+                    angles.any { abs(s - it) <= orbLimit }
+                }
+            }
+        }
+
+    private fun setDynamicWeights(planets: List<PlanetDef>, longs: DoubleArray, orbLimit: Double, useSd: Boolean, usePm: Boolean): DoubleArray {
+        val n = planets.size
+        val pm = DoubleArray(n)
+        if (usePm) {
+            for (i in 0 until n) for (j in 0 until n) {
+                if (i == j) continue
+                val s = sep(longs[i], longs[j])
+                val q = planets[j]
+                for (A in ANGLES) if (abs(s - A) <= orbLimit) pm[i] += q.weight * cjFor(q, A) * aspectPolarity(q, A, false)
+            }
+        }
+        return DoubleArray(n) { i ->
+            val sd = if (useSd) signDignity(planets[i].name, longs[i]) else 1.0
+            max(MIN_DYNAMIC_WEIGHT, planets[i].weight * sd + pm[i] / PM_DIVISOR)
+        }
+    }
+
+    private fun mercuryHitsFrom(
+        longs: DoubleArray, orbLimit: Double, useSd: Boolean, usePm: Boolean, taintAllMm: Boolean, orbFalloff: Boolean
+    ): List<HelioHit> {
+        val tainted = setTainted(MERC_PLANETS, longs, orbLimit)
+        val dw = setDynamicWeights(MERC_PLANETS, longs, orbLimit, useSd, usePm)
+        val list = ArrayList<HelioHit>()
+        MERC_PLANETS.forEachIndexed { k, planet ->
+            if (k == MERC_TARGET) return@forEachIndexed
+            val sp = sep(longs[MERC_TARGET], longs[k])
+            ANGLES.forEach { A ->
+                val dd = abs(sp - A)
+                if (dd <= orbLimit) {
+                    list.add(
+                        HelioHit(
+                            planet.name, planet.glyph, A, dd,
+                            aspectPolarity(planet, A, tainted[k], taintAllMm),
+                            cjFor(planet, A), dw[k],
+                            if (orbFalloff) max(0.0, 1.0 - dd / orbLimit) else 1.0
+                        )
+                    )
+                }
+            }
+        }
+        return list
+    }
+
+    /** Geocentric aspects to Mercury at one moment (Pluto, Neptune, Uranus, Saturn, Jupiter, Mars, Venus and the Sun). */
+    fun mercuryHits(
+        ms: Long, orbLimit: Double = 3.0, useSd: Boolean = true, usePm: Boolean = true,
+        taintAllMm: Boolean = true, orbFalloff: Boolean = true
+    ): List<HelioHit> = mercuryHitsFrom(mercSetLongs(calculatePlanetaryPositions(ms)), orbLimit, useSd, usePm, taintAllMm, orbFalloff)
+
+    fun mercuryTotal(
+        ms: Long, orbLimit: Double = 3.0, useSd: Boolean = true, usePm: Boolean = true,
+        taintAllMm: Boolean = true, orbFalloff: Boolean = true
+    ): Double = mercuryHits(ms, orbLimit, useSd, usePm, taintAllMm, orbFalloff).sumOf { it.value }
+
+    /** The Mercury running total on every 5-minute bar of the main series (uses the longitudes the bars already hold). */
+    fun mercuryTotalSeries(
+        series: List<SentimentBar>, orbLimit: Double = 3.0, useSd: Boolean = true, usePm: Boolean = true,
+        taintAllMm: Boolean = true, orbFalloff: Boolean = true
+    ): DoubleArray = DoubleArray(series.size) {
+        mercuryHitsFrom(mercSetLongs(series[it].planetaryLongitudes), orbLimit, useSd, usePm, taintAllMm, orbFalloff).sumOf { h -> h.value }
+    }
+
+    /**
+     * v7.2: the Mercury running total for the week in 6-hour bars (each the average of six hourly readings), and the
+     * detrended total: total minus its trailing 5-day average (20 bars, the bar itself included). The 5-day average is
+     * warmed up on the 5 days before the week.
+     */
+    fun calculateMercuryWeek(
+        startMs: Long,
+        bars: Int = 28,
+        barMs: Long = 6 * 3_600_000L,
+        avgBars: Int = 20,
+        orbLimit: Double = 3.0,
+        useSd: Boolean = true,
+        usePm: Boolean = true,
+        taintAllMm: Boolean = true,
+        orbFalloff: Boolean = true
+    ): MercuryWeek {
+        val hour = 3_600_000L
+        val perBar = max(1, (barMs / hour).toInt())
+        val warm = avgBars - 1
+        val all = warm + bars
+        val first = startMs - warm * barMs
+        val total = DoubleArray(all) { k ->
+            var a = 0.0
+            for (h in 0 until perBar) a += mercuryTotal(first + k * barMs + h * hour + hour / 2, orbLimit, useSd, usePm, taintAllMm, orbFalloff)
+            a / perBar
+        }
+        val avg = DoubleArray(bars)
+        val detr = DoubleArray(bars)
+        for (i in 0 until bars) {
+            val k = warm + i
+            var sum = 0.0
+            for (j in k - avgBars + 1..k) sum += total[j]
+            avg[i] = sum / avgBars
+            detr[i] = total[k] - avg[i]
+        }
+        return MercuryWeek(List(bars) { HelioBar(startMs + it * barMs, total[warm + it]) }, detr, avg, barMs)
     }
 
     /** Start and end (exclusive) of the week shown by the sky card: 2 days before to 5 days after the local day of ms. */
