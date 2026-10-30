@@ -239,6 +239,7 @@ fun SunAscendantPane(
     view: IntArray,
     zoom: Float,
     trend: DoubleArray? = null,
+    marks: com.ascendant.sentiment.model.MoonMarks? = null,   // v7.4: dots where the Moon aspects this planet
     modifier: Modifier = Modifier.fillMaxWidth().height(96.dp)
 ) {
     val numBars = data.detr.size
@@ -286,6 +287,23 @@ fun SunAscendantPane(
                 Offset(left + (i - start) * bw, min(yZero, y)),
                 Size(max(bw - 1f, 1.5f), max(abs(y - yZero), 1f))
             )
+        }
+
+        // v7.4: a dot on the bar tip whenever the Moon aspects this planet, coloured by that aspect; larger at the exact bar
+        if (marks != null && marks.angle.size == numBars) {
+            for (i in start until start + count) {
+                val a = marks.angle[i]
+                if (a < 0) continue
+                val c = HelioAspectColors[a] ?: Color.White
+                val center = Offset(left + (i - start + 0.5f) * bw, yOf(data.detr[i]))
+                if (marks.exact[i]) {
+                    drawCircle(c, 5.dp.toPx(), center)
+                    drawCircle(Color.White, 5.dp.toPx(), center, style = Stroke(width = 1.5f))
+                } else {
+                    drawCircle(c, 2.5.dp.toPx(), center)
+                    drawCircle(BgDark, 2.5.dp.toPx(), center, style = Stroke(width = 1f))
+                }
+            }
         }
 
         val sx = left + (selIdx - start + 0.5f) * bw

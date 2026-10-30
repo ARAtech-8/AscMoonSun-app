@@ -1284,6 +1284,29 @@ object AstroEngine {
     fun sunAscendantSeries(series: List<SentimentBar>, orbFalloff: Boolean, window: Int = DETREND_BARS): SunAscSeries =
         planetAscendantSeries(series, orbFalloff, "Sun", window)
 
+    /** v7.4: the Moon's aspects to one planet (transit to transit, same angles and orb as everywhere), per bar. */
+    fun moonAspectMarks(series: List<SentimentBar>, planetName: String, orbLimit: Double = 3.0): MoonMarks {
+        val n = series.size
+        val mi = PLANETS.indexOfFirst { it.name == "Moon" }
+        val pi = PLANETS.indexOfFirst { it.name == planetName }
+        val angle = IntArray(n) { -1 }
+        val orbs = DoubleArray(n) { Double.MAX_VALUE }
+        for (i in 0 until n) {
+            val s = sep(series[i].planetaryLongitudes[mi], series[i].planetaryLongitudes[pi])
+            for (A in ANGLES) {
+                val d = abs(s - A)
+                if (d <= orbLimit && d < orbs[i]) { orbs[i] = d; angle[i] = A }
+            }
+        }
+        val exact = BooleanArray(n) { i ->
+            angle[i] >= 0 &&
+                (i == 0 || angle[i - 1] != angle[i] || orbs[i] <= orbs[i - 1]) &&
+                (i == n - 1 || angle[i + 1] != angle[i] || orbs[i] < orbs[i + 1]) &&
+                i > 0 && i < n - 1 && angle[i - 1] == angle[i] && angle[i + 1] == angle[i]
+        }
+        return MoonMarks(angle, exact)
+    }
+
     /** v7.2: the same for any single planet's aspects to the Ascendant (Sun, Mercury). */
     fun planetAscendantSeries(series: List<SentimentBar>, orbFalloff: Boolean, planetName: String, window: Int = DETREND_BARS): SunAscSeries {
         val n = series.size

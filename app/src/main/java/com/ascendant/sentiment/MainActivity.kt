@@ -113,6 +113,7 @@ fun MainScreen(
     var showHelio by remember { mutableStateOf(true) }    // v7.0: heliocentric Sun field week card
     var moonNatal by remember { mutableStateOf(true) }    // v7.3: natal aspects in the Moon mood
     var showPlutoAsp by remember { mutableStateOf(true) } // v7.3: Pluto-only Ascendant pane
+    var showSaturnAsp by remember { mutableStateOf(true) } // v7.4: Saturn-only Ascendant pane
     var showMerc by remember { mutableStateOf(true) }     // v7.2: Mercury aspects week card
     var showMercAsp by remember { mutableStateOf(true) }  // v7.2: Mercury-only Ascendant pane
     var showHelioAsp by remember { mutableStateOf(true) } // v7.0: Sun aspects panel under the detrended Ascendant      // v6.1: sky field week card
@@ -186,6 +187,13 @@ fun MainScreen(
     }
     val mercHitsNow = remember(inspectedTimeMs / 300_000L, showMerc, useSd, usePm, taintAllMm, orbFalloff) {
         if (showMerc) AstroEngine.mercuryHits((inspectedTimeMs / 300_000L) * 300_000L, 3.0, useSd, usePm, taintAllMm, orbFalloff) else emptyList()
+    }
+    val moonSunMarks = remember(series, showHelioAsp) { if (showHelioAsp) AstroEngine.moonAspectMarks(series, "Sun") else null }
+    val moonPlutoMarks = remember(series, showPlutoAsp) { if (showPlutoAsp) AstroEngine.moonAspectMarks(series, "Pluto") else null }
+    val moonMercMarks = remember(series, showMercAsp) { if (showMercAsp) AstroEngine.moonAspectMarks(series, "Mercury") else null }
+    val moonSatMarks = remember(series, showSaturnAsp) { if (showSaturnAsp) AstroEngine.moonAspectMarks(series, "Saturn") else null }
+    val satAsc = remember(series, orbFalloff, showSaturnAsp) {
+        if (showSaturnAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Saturn") else null
     }
     val plutoAsc = remember(series, orbFalloff, showPlutoAsp) {
         if (showPlutoAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Pluto") else null
@@ -454,6 +462,7 @@ fun MainScreen(
                 ResonanceSwitch("Mercury card (aspects to Mercury, week)", showMerc, Modifier.fillMaxWidth()) { onHaptic(); showMerc = it }
                 ResonanceSwitch("Mercury-only Ascendant pane (Mercury tint)", showMercAsp, Modifier.fillMaxWidth()) { onHaptic(); showMercAsp = it }
                 ResonanceSwitch("Pluto-only Ascendant pane", showPlutoAsp, Modifier.fillMaxWidth()) { onHaptic(); showPlutoAsp = it }
+                ResonanceSwitch("Saturn-only Ascendant pane", showSaturnAsp, Modifier.fillMaxWidth()) { onHaptic(); showSaturnAsp = it }
                 ResonanceSwitch("Natal aspects in Moon mood", moonNatal, Modifier.fillMaxWidth()) { onHaptic(); moonNatal = it }
                 ResonanceSwitch("Moon in sky card natal line", moonInNatal, Modifier.fillMaxWidth()) { onHaptic(); moonInNatal = it }
             }
@@ -647,11 +656,13 @@ fun MainScreen(
                     val vSun = sunAsc.detr.getOrNull(curIdx)
                     PaneHeader(
                         title = "SUN ONLY · ASPECTS TO THE ASCENDANT  (detrended)",
-                        value = sunNow?.let { "☉ ${it.aspectAngle}°  " + (vSun?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Sun aspect",
+                        value = (sunNow?.let { "☉ ${it.aspectAngle}°  " + (vSun?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Sun aspect") +
+                            (moonSunMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ☉" } ?: ""),
                         valueColor = sunNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     HelioLegend()
+                    Text("Dots on the bars: the Moon aspects this planet (dot colour = that aspect, large dot = exact)", color = Slate400, fontSize = 9.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
                         SunAscendantPane(
@@ -660,7 +671,8 @@ fun MainScreen(
                             inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
                             view = chartView,
                             zoom = zoom,
-                            trend = helioTrend
+                            trend = helioTrend,
+                            marks = moonSunMarks
                         )
                     }
                 }
@@ -671,7 +683,8 @@ fun MainScreen(
                     val vPluto = plutoAsc.detr.getOrNull(curIdx)
                     PaneHeader(
                         title = "PLUTO ONLY · ASPECTS TO THE ASCENDANT  (detrended)",
-                        value = plutoNow?.let { "♇ ${it.aspectAngle}°  " + (vPluto?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Pluto aspect",
+                        value = (plutoNow?.let { "♇ ${it.aspectAngle}°  " + (vPluto?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Pluto aspect") +
+                            (moonPlutoMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ♇" } ?: ""),
                         valueColor = plutoNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -681,7 +694,31 @@ fun MainScreen(
                             firstBarMs = series.first().timeMs,
                             inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
                             view = chartView,
-                            zoom = zoom
+                            zoom = zoom,
+                            marks = moonPlutoMarks
+                        )
+                    }
+                }
+
+                if (showSaturnAsp && satAsc != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val satNow = currentBar?.aspects?.filter { it.planetName == "Saturn" }?.minByOrNull { it.orbDiff }
+                    val vSat = satAsc.detr.getOrNull(curIdx)
+                    PaneHeader(
+                        title = "SATURN ONLY · ASPECTS TO THE ASCENDANT  (detrended)",
+                        value = (satNow?.let { "♄ ${it.aspectAngle}°  " + (vSat?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Saturn aspect") +
+                            (moonSatMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ♄" } ?: ""),
+                        valueColor = satNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
+                        SunAscendantPane(
+                            data = satAsc,
+                            firstBarMs = series.first().timeMs,
+                            inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
+                            view = chartView,
+                            zoom = zoom,
+                            marks = moonSatMarks
                         )
                     }
                 }
@@ -692,7 +729,8 @@ fun MainScreen(
                     val vMerc = mercAsc.detr.getOrNull(curIdx)
                     PaneHeader(
                         title = "MERCURY ONLY · ASPECTS TO THE ASCENDANT  (detrended, tint = Mercury card)",
-                        value = mercNow?.let { "☿ ${it.aspectAngle}°  " + (vMerc?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Mercury aspect",
+                        value = (mercNow?.let { "☿ ${it.aspectAngle}°  " + (vMerc?.let { v -> (if (v > 0) "+" else "") + "%.2f".format(v) } ?: "") } ?: "no Mercury aspect") +
+                            (moonMercMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ☿" } ?: ""),
                         valueColor = mercNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -703,7 +741,8 @@ fun MainScreen(
                             inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
                             view = chartView,
                             zoom = zoom,
-                            trend = mercTrend
+                            trend = mercTrend,
+                            marks = moonMercMarks
                         )
                     }
                 }

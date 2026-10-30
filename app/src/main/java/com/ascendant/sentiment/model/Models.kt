@@ -255,6 +255,12 @@ class HelioWeek(
 )
 
 /**
+ * v7.4: where the Moon makes an aspect to one planet, per 5-minute bar. angle = aspect angle in orb (-1 = none),
+ * exact = the bar where the aspect is closest to exact.
+ */
+class MoonMarks(val angle: IntArray, val exact: BooleanArray)
+
+/**
  * v7.1: the Sun's aspects to the Ascendant on their own: detrended running total (Sun hits only, minus their trailing
  * 1-hour average) per 5-minute bar, and the aspect angle that colours the bar (-1 = none).
  */
