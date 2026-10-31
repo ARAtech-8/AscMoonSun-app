@@ -191,6 +191,7 @@ fun MainScreen(
     val moonSunMarks = remember(series, showHelioAsp) { if (showHelioAsp) AstroEngine.moonAspectMarks(series, "Sun") else null }
     val moonPlutoMarks = remember(series, showPlutoAsp) { if (showPlutoAsp) AstroEngine.moonAspectMarks(series, "Pluto") else null }
     val moonMercMarks = remember(series, showMercAsp) { if (showMercAsp) AstroEngine.moonAspectMarks(series, "Mercury") else null }
+    val moonMarsMarks = remember(series, showPlutoAsp, showSaturnAsp) { if (showPlutoAsp || showSaturnAsp) AstroEngine.moonAspectMarks(series, "Mars") else null }
     val moonSatMarks = remember(series, showSaturnAsp) { if (showSaturnAsp) AstroEngine.moonAspectMarks(series, "Saturn") else null }
     val satAsc = remember(series, orbFalloff, showSaturnAsp) {
         if (showSaturnAsp) AstroEngine.planetAscendantSeries(series, orbFalloff, "Saturn") else null
@@ -687,6 +688,7 @@ fun MainScreen(
                             (moonPlutoMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ♇" } ?: ""),
                         valueColor = plutoNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
                     )
+                    Text("Background tint: the Moon aspects Mars (tint colour = that aspect)", color = Slate400, fontSize = 9.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
                         SunAscendantPane(
@@ -695,7 +697,8 @@ fun MainScreen(
                             inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
                             view = chartView,
                             zoom = zoom,
-                            marks = moonPlutoMarks
+                            marks = moonPlutoMarks,
+                            bgMarks = moonMarsMarks
                         )
                     }
                 }
@@ -710,6 +713,7 @@ fun MainScreen(
                             (moonSatMarks?.angle?.getOrNull(curIdx)?.takeIf { it >= 0 }?.let { "   ☽ $it° ♄" } ?: ""),
                         valueColor = satNow?.let { HelioAspectColors[it.aspectAngle] } ?: Slate400
                     )
+                    Text("Background tint: the Moon aspects Mars (tint colour = that aspect)", color = Slate400, fontSize = 9.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
                         SunAscendantPane(
@@ -718,7 +722,8 @@ fun MainScreen(
                             inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
                             view = chartView,
                             zoom = zoom,
-                            marks = moonSatMarks
+                            marks = moonSatMarks,
+                            bgMarks = moonMarsMarks
                         )
                     }
                 }

@@ -240,6 +240,7 @@ fun SunAscendantPane(
     zoom: Float,
     trend: DoubleArray? = null,
     marks: com.ascendant.sentiment.model.MoonMarks? = null,   // v7.4: dots where the Moon aspects this planet
+    bgMarks: com.ascendant.sentiment.model.MoonMarks? = null, // v7.5: background tint where the Moon aspects Mars (colour = aspect)
     modifier: Modifier = Modifier.fillMaxWidth().height(96.dp)
 ) {
     val numBars = data.detr.size
@@ -267,6 +268,18 @@ fun SunAscendantPane(
                 if (d == 0.0) continue
                 drawRect(
                     (if (d > 0) Emerald500 else Rose500).copy(alpha = 0.2f),
+                    Offset(left + (i - start) * bw, top), Size(max(bw, 1f), plotH)
+                )
+            }
+        }
+
+        // v7.5: Moon-Mars aspect tint behind the bars, light enough that bars, dots and guides stay clear
+        if (bgMarks != null && bgMarks.angle.size == numBars) {
+            for (i in start until start + count) {
+                val a = bgMarks.angle[i]
+                if (a < 0) continue
+                drawRect(
+                    (HelioAspectColors[a] ?: Color.White).copy(alpha = if (bgMarks.exact[i]) 0.34f else 0.20f),
                     Offset(left + (i - start) * bw, top), Size(max(bw, 1f), plotH)
                 )
             }
