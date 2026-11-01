@@ -1467,6 +1467,100 @@ object AstroEngine {
         return MercuryWeek(List(bars) { HelioBar(startMs + it * barMs, total[warm + it]) }, detr, avg, barMs)
     }
 
+    // ---------------- v8.0: Pluto and its actors ----------------
+
+    private val PLUTO_ACTOR_NAMES = listOf("Moon", "Mercury", "Mars", "Saturn")
+    val PLUTO_ACTORS: List<PlanetDef> by lazy { PLUTO_ACTOR_NAMES.map { n -> PLANETS.first { it.name == n } } }
+
+    private fun bestAspect(a: Double, b: Double, orbLimit: Double): Pair<Int, Double> {
+        val s = sep(a, b)
+        var bestA = -1
+        var bestD = Double.MAX_VALUE
+        for (A in ANGLES) {
+            val d = abs(s - A)
+            if (d <= orbLimit && d < bestD) { bestD = d; bestA = A }
+        }
+        return bestA to (if (bestA >= 0) bestD else 0.0)
+    }
+
+    /** Aspect of each actor (Moon, Mercury, Mars, Saturn) to Pluto on every 5-minute bar of the main series. */
+    fun plutoActorGrid(series: List<SentimentBar>, orbLimit: Double = 3.0): PlutoGrid {
+        val n = series.size
+        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
+        val actors = PLUTO_ACTORS
+        val angle = Array(actors.size) { IntArray(n) { -1 } }
+        val orbs = Array(actors.size) { DoubleArray(n) }
+        val idx = actors.map { a -> PLANETS.indexOfFirst { it.name == a.name } }
+        for (i in 0 until n) {
+            val l = series[i].planetaryLongitudes
+            for (k in actors.indices) {
+                val (a, d) = bestAspect(l[pi], l[idx[k]], orbLimit)
+                angle[k][i] = a
+                orbs[k][i] = d
+            }
+        }
+        return PlutoGrid(actors, angle, orbs)
+    }
+
+    /** The week version: 6-hour bars, each showing the tightest aspect found in six hourly readings. */
+    fun plutoActorWeek(startMs: Long, bars: Int = 28, barMs: Long = 6 * 3_600_000L, orbLimit: Double = 3.0): PlutoWeek {
+        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
+        val actors = PLUTO_ACTORS
+        val idx = actors.map { a -> PLANETS.indexOfFirst { it.name == a.name } }
+        val hour = 3_600_000L
+        val per = max(1, (barMs / hour).toInt())
+        val angle = Array(actors.size) { IntArray(bars) { -1 } }
+        val orbs = Array(actors.size) { DoubleArray(bars) { Double.MAX_VALUE } }
+        for (b in 0 until bars) {
+            for (h in 0 until per) {
+                val l = calculatePlanetaryPositions(startMs + b * barMs + h * hour + hour / 2)
+                for (k in actors.indices) {
+                    val (a, d) = bestAspect(l[pi], l[idx[k]], orbLimit)
+                    if (a >= 0 && d < orbs[k][b]) { orbs[k][b] = d; angle[k][b] = a }
+                }
+            }
+        }
+        for (k in actors.indices) for (b in 0 until bars) if (angle[k][b] < 0) orbs[k][b] = 0.0
+        return PlutoWeek(PlutoGrid(actors, angle, orbs), startMs, barMs)
+    }
+
+    /**
+     * For each actor in aspect to Pluto at ms: the aspect, how far from exact it is, and the time of the nearest exact
+     * pass (before or after ms). Coarse sampling is enough: Moon hourly +/-2 days, Mercury 2-hourly +/-10 days,
+     * Mars 6-hourly +/-40 days, Saturn daily +/-200 days. exactMs is null if no exact pass is found in that range.
+     */
+    fun plutoExactInfo(ms: Long, orbLimit: Double = 3.0): List<PlutoExact> {
+        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
+        val hour = 3_600_000L
+        val day = 24 * hour
+        val out = ArrayList<PlutoExact>()
+        for (actor in PLUTO_ACTORS) {
+            val ai = PLANETS.indexOfFirst { it.name == actor.name }
+            val now = calculatePlanetaryPositions(ms)
+            val (angle, orbNow) = bestAspect(now[pi], now[ai], orbLimit)
+            if (angle < 0) continue
+            val (step, range) = when (actor.name) {
+                "Moon" -> hour to 2 * day
+                "Mercury" -> 2 * hour to 10 * day
+                "Mars" -> 6 * hour to 40 * day
+                else -> day to 200 * day
+            }
+            val n = (range / step).toInt()
+            val f = DoubleArray(2 * n + 1) { k ->
+                val l = calculatePlanetaryPositions(ms + (k - n) * step)
+                abs(sep(l[pi], l[ai]) - angle)
+            }
+            var best: Int? = null
+            for (k in 1 until f.size - 1) {
+                if (f[k] <= f[k - 1] && f[k] <= f[k + 1] && f[k] <= 1.0) {
+                    if (best == null || abs(k - n) < abs(best - n)) best = k
+                }
+            }
+            out.add(PlutoExact(actor.name, actor.glyph, angle, orbNow, best?.let { ms + (it - n) * step }))
+        }
+        return out
+    }
+
     /** Start and end (exclusive) of the week shown by the sky card: 2 days before to 5 days after the local day of ms. */
     fun weekBoundsMs(ms: Long, timeZoneId: String, daysBack: Int = 2, daysForward: Int = 5): Pair<Long, Long> {
         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(timeZoneId))

@@ -113,6 +113,8 @@ fun MainScreen(
     var showHelio by remember { mutableStateOf(true) }    // v7.0: heliocentric Sun field week card
     var moonNatal by remember { mutableStateOf(true) }    // v7.3: natal aspects in the Moon mood
     var showPlutoAsp by remember { mutableStateOf(true) } // v7.3: Pluto-only Ascendant pane
+    var showPlutoStrip by remember { mutableStateOf(true) } // v8.0: Pluto and its actors strip
+    var showPlutoWeek by remember { mutableStateOf(true) }  // v8.0: Pluto and its actors week card
     var showSaturnAsp by remember { mutableStateOf(true) } // v7.4: Saturn-only Ascendant pane
     var showMerc by remember { mutableStateOf(true) }     // v7.2: Mercury aspects week card
     var showMercAsp by remember { mutableStateOf(true) }  // v7.2: Mercury-only Ascendant pane
@@ -191,6 +193,11 @@ fun MainScreen(
     val moonSunMarks = remember(series, showHelioAsp) { if (showHelioAsp) AstroEngine.moonAspectMarks(series, "Sun") else null }
     val moonPlutoMarks = remember(series, showPlutoAsp) { if (showPlutoAsp) AstroEngine.moonAspectMarks(series, "Pluto") else null }
     val moonMercMarks = remember(series, showMercAsp) { if (showMercAsp) AstroEngine.moonAspectMarks(series, "Mercury") else null }
+    val plutoGrid = remember(series, showPlutoStrip) { if (showPlutoStrip) AstroEngine.plutoActorGrid(series) else null }
+    val plutoWeek = remember(weekBounds.first, showPlutoWeek) { if (showPlutoWeek) AstroEngine.plutoActorWeek(weekBounds.first) else null }
+    val plutoExacts = remember(inspectedTimeMs / 3_600_000L, showPlutoWeek) {
+        if (showPlutoWeek) AstroEngine.plutoExactInfo((inspectedTimeMs / 300_000L) * 300_000L) else emptyList()
+    }
     val moonMarsMarks = remember(series, showPlutoAsp, showSaturnAsp) { if (showPlutoAsp || showSaturnAsp) AstroEngine.moonAspectMarks(series, "Mars") else null }
     val moonSatMarks = remember(series, showSaturnAsp) { if (showSaturnAsp) AstroEngine.moonAspectMarks(series, "Saturn") else null }
     val satAsc = remember(series, orbFalloff, showSaturnAsp) {
@@ -463,6 +470,8 @@ fun MainScreen(
                 ResonanceSwitch("Mercury card (aspects to Mercury, week)", showMerc, Modifier.fillMaxWidth()) { onHaptic(); showMerc = it }
                 ResonanceSwitch("Mercury-only Ascendant pane (Mercury tint)", showMercAsp, Modifier.fillMaxWidth()) { onHaptic(); showMercAsp = it }
                 ResonanceSwitch("Pluto-only Ascendant pane", showPlutoAsp, Modifier.fillMaxWidth()) { onHaptic(); showPlutoAsp = it }
+                ResonanceSwitch("Pluto and its actors strip (5-min panes)", showPlutoStrip, Modifier.fillMaxWidth()) { onHaptic(); showPlutoStrip = it }
+                ResonanceSwitch("Pluto and its actors card (week)", showPlutoWeek, Modifier.fillMaxWidth()) { onHaptic(); showPlutoWeek = it }
                 ResonanceSwitch("Saturn-only Ascendant pane", showSaturnAsp, Modifier.fillMaxWidth()) { onHaptic(); showSaturnAsp = it }
                 ResonanceSwitch("Natal aspects in Moon mood", moonNatal, Modifier.fillMaxWidth()) { onHaptic(); moonNatal = it }
                 ResonanceSwitch("Moon in sky card natal line", moonInNatal, Modifier.fillMaxWidth()) { onHaptic(); moonInNatal = it }
@@ -699,6 +708,27 @@ fun MainScreen(
                             zoom = zoom,
                             marks = moonPlutoMarks,
                             bgMarks = moonMarsMarks
+                        )
+                    }
+                }
+
+                if (showPlutoStrip && plutoGrid != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val lit = plutoGrid.actors.indices.count { plutoGrid.angle[it].getOrNull(curIdx)?.let { a -> a >= 0 } == true }
+                    PaneHeader(
+                        title = "PLUTO AND ITS ACTORS  (☽ ☿ ♂ ♄ aspecting Pluto, amber = 2 or more)",
+                        value = if (lit == 0) "none" else "$lit in aspect",
+                        valueColor = if (lit >= 2) Amber500 else Slate400
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))) {
+                        PlutoActorStrip(
+                            grid = plutoGrid,
+                            barCount = series.size,
+                            firstBarMs = series.first().timeMs,
+                            inspectedTimeMs = currentBar?.timeMs ?: inspectedTimeMs,
+                            view = chartView,
+                            zoom = zoom
                         )
                     }
                 }
@@ -945,6 +975,22 @@ fun MainScreen(
             MercuryFieldCard(
                 week = mercWeek,
                 hitsNow = mercHitsNow,
+                inspectedTimeMs = inspectedTimeMs,
+                nowMs = nowMs,
+                timeZoneId = selectedTimezone,
+                onInspectTime = { t ->
+                    isLive = false
+                    if (series.isNotEmpty() && (t < series.first().timeMs || t > series.last().timeMs)) centerTimeMs = t
+                    inspectedTimeMs = t
+                }
+            )
+        }
+
+        // v8.0: Pluto and its actors for the week (below the Mercury card)
+        if (showPlutoWeek && plutoWeek != null) {
+            PlutoWeekCard(
+                week = plutoWeek,
+                exacts = plutoExacts,
                 inspectedTimeMs = inspectedTimeMs,
                 nowMs = nowMs,
                 timeZoneId = selectedTimezone,

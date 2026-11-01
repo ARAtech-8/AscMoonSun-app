@@ -23,6 +23,9 @@ import androidx.compose.ui.unit.sp
 import com.ascendant.sentiment.model.HelioHit
 import com.ascendant.sentiment.model.HelioWeek
 import com.ascendant.sentiment.model.MercuryWeek
+import com.ascendant.sentiment.model.PlutoExact
+import com.ascendant.sentiment.model.PlutoGrid
+import com.ascendant.sentiment.model.PlutoWeek
 import com.ascendant.sentiment.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -477,6 +480,176 @@ fun MercuryFieldCard(
                         color = HelioAspectColors[h.aspectAngle] ?: Slate100, fontSize = 11.sp
                     )
                 }
+            }
+        }
+    }
+}
+
+private val ConvergenceAmber = Color(0xFFF59E0B)
+
+/** Draws one lane per actor (Moon, Mercury, Mars, Saturn): coloured by aspect to Pluto, brighter closer to exact. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawActorLanes(
+    grid: PlutoGrid,
+    from: Int,
+    count: Int,
+    left: Float,
+    top: Float,
+    laneH: Float,
+    cellW: Float,
+    labelGapPx: Float
+) {
+    val glyph = android.graphics.Paint().apply {
+        isAntiAlias = true; textSize = 11.sp.toPx(); color = Slate400.toArgb(); textAlign = android.graphics.Paint.Align.RIGHT
+    }
+    for (k in grid.actors.indices) {
+        val y = top + k * laneH
+        drawLine(Color(0xFF1E293B), Offset(left, y + laneH), Offset(left + cellW * count, y + laneH), 1f)
+        drawContext.canvas.nativeCanvas.drawText(grid.actors[k].glyph, left - labelGapPx, y + laneH * 0.5f + glyph.textSize * 0.35f, glyph)
+        for (i in from until from + count) {
+            val a = grid.angle[k][i]
+            if (a < 0) continue
+            val closeness = (1.0 - grid.orb[k][i] / 3.0).toFloat().coerceIn(0f, 1f)
+            drawRect(
+                (HelioAspectColors[a] ?: Color.White).copy(alpha = 0.45f + 0.55f * closeness),
+                Offset(left + (i - from) * cellW, y + 2f), Size(max(cellW, 1f), laneH - 4f)
+            )
+        }
+    }
+    // convergence: two or more actors in aspect to Pluto on the same bar
+    for (i in from until from + count) {
+        val lit = grid.actors.indices.count { grid.angle[it][i] >= 0 }
+        if (lit >= 2) {
+            drawRect(ConvergenceAmber, Offset(left + (i - from) * cellW, top - 3.dp.toPx()), Size(max(cellW, 1f), 3.dp.toPx()))
+        }
+    }
+}
+
+/**
+ * v8.0: Pluto and its actors on the 5-minute bars (shares the main chart window). Four lanes, top to bottom:
+ * Moon, Mercury, Mars, Saturn. A lit cell = that planet aspects Pluto, coloured by the aspect. Amber bar on top = two or
+ * more actors aspect Pluto on the same bar (convergence).
+ */
+@Composable
+fun PlutoActorStrip(
+    grid: PlutoGrid,
+    barCount: Int,
+    firstBarMs: Long,
+    inspectedTimeMs: Long,
+    view: IntArray,
+    zoom: Float,
+    modifier: Modifier = Modifier.fillMaxWidth().height(72.dp)
+) {
+    if (barCount <= 0 || grid.angle.isEmpty() || grid.angle[0].size != barCount) return
+    val selIdx = ((inspectedTimeMs - firstBarMs) / 300_000L).toInt().coerceIn(0, barCount - 1)
+    val start = view[0].coerceIn(0, barCount - 1)
+    val count = view[1].coerceIn(1, barCount - start)
+    val zoomKey = zoom
+
+    Canvas(modifier = modifier) {
+        val left = 42.dp.toPx()
+        val top = 6.dp.toPx()
+        val bottom = 3.dp.toPx()
+        val plotW = size.width - left - 12.dp.toPx()
+        val laneH = (size.height - top - bottom) / grid.actors.size
+        val bw = plotW / count
+        drawRect(BgDark, size = size)
+        drawActorLanes(grid, start, count, left, top, laneH, bw, 8.dp.toPx())
+        val sx = left + (selIdx - start + 0.5f) * bw
+        drawLine(Color.White, Offset(sx, top), Offset(sx, size.height - bottom), 2f)
+    }
+}
+
+private fun fmtDur(ms: Long): String {
+    val h = abs(ms) / 3_600_000.0
+    return if (h < 36) "%.1f h".format(h) else "%.1f days".format(h / 24.0)
+}
+
+/**
+ * v8.0: Pluto and its actors for the whole week in 6-hour bars: one lane per actor, coloured by the aspect to Pluto and
+ * brighter closer to exact, amber marks where two or more actors aspect Pluto together. Underneath, for every actor
+ * currently in aspect: the aspect and how long to (or since) its exact pass.
+ */
+@Composable
+fun PlutoWeekCard(
+    week: PlutoWeek,
+    exacts: List<PlutoExact>,
+    inspectedTimeMs: Long,
+    nowMs: Long,
+    timeZoneId: String,
+    onInspectTime: (Long) -> Unit
+) {
+    val grid = week.grid
+    val n = grid.angle[0].size
+    if (n == 0) return
+    val weekStart = week.startMs
+    val weekEnd = weekStart + n * week.barMs
+    val dayFmt = remember(timeZoneId) { SimpleDateFormat("EEE d", Locale.US).apply { timeZone = TimeZone.getTimeZone(timeZoneId) } }
+    val onInspect = rememberUpdatedState(onInspectTime)
+    val selIdx = ((inspectedTimeMs - weekStart) / week.barMs).toInt().coerceIn(0, n - 1)
+    val convBars = (0 until n).count { i -> grid.actors.indices.count { grid.angle[it][i] >= 0 } >= 2 }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(BorderDark))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("♇ PLUTO AND ITS ACTORS · WEEK (6h bars)", color = Slate400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Lanes: ☽ Moon, ☿ Mercury, ♂ Mars, ♄ Saturn · amber bar = two or more at once ($convBars bars this week)",
+                color = Slate400, fontSize = 9.sp, lineHeight = 12.sp
+            )
+            Spacer(Modifier.height(8.dp))
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp)
+                    .weekScrub(week, n, weekStart, week.barMs, onInspect)
+            ) {
+                val left = 42.dp.toPx()
+                val top = 8.dp.toPx()
+                val bottom = 14.dp.toPx()
+                val plotW = size.width - left - 12.dp.toPx()
+                val laneH = (size.height - top - bottom) / grid.actors.size
+                val cell = plotW / n
+                drawActorLanes(grid, 0, n, left, top, laneH, cell, 8.dp.toPx())
+
+                var lastDay = ""
+                for (i in 0 until n) {
+                    val label = dayFmt.format(Date(weekStart + i * week.barMs))
+                    if (label != lastDay) {
+                        lastDay = label
+                        drawLine(Color(0xFF334155).copy(alpha = 0.6f), Offset(left + i * cell, top), Offset(left + i * cell, top + laneH * grid.actors.size), 1f)
+                        drawContext.canvas.nativeCanvas.drawText(
+                            label, left + i * cell + 3.dp.toPx(), size.height - 2.dp.toPx(),
+                            android.graphics.Paint().apply { isAntiAlias = true; textSize = 9.sp.toPx(); color = Slate400.toArgb() }
+                        )
+                    }
+                }
+                if (nowMs in weekStart until weekEnd) {
+                    val nx = left + ((nowMs - weekStart).toFloat() / (weekEnd - weekStart)) * plotW
+                    drawLine(Color(0xFFFBBF24).copy(alpha = 0.6f), Offset(nx, top), Offset(nx, top + laneH * grid.actors.size), 1.5f)
+                }
+                val sx = left + (selIdx + 0.5f) * cell
+                drawLine(Color.White, Offset(sx, top), Offset(sx, top + laneH * grid.actors.size), 2f)
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text("At the cursor", color = Slate400, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            if (exacts.isEmpty()) {
+                Text("None of the Moon, Mercury, Mars or Saturn is in aspect to Pluto.", color = Slate100, fontSize = 11.sp)
+            }
+            exacts.forEach { e ->
+                val timing = e.exactMs?.let { m ->
+                    val d = m - inspectedTimeMs
+                    if (abs(d) < 1_800_000L) "exact now" else if (d > 0) "exact in ${fmtDur(d)}" else "exact ${fmtDur(d)} ago"
+                } ?: "no exact pass nearby"
+                Text(
+                    "${e.glyph} ${e.actorName} ${e.angle}° ♇ · orb %.1f° · $timing".format(e.orbNow),
+                    color = HelioAspectColors[e.angle] ?: Slate100, fontSize = 11.sp
+                )
             }
         }
     }

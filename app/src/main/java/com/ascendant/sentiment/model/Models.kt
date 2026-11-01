@@ -255,6 +255,18 @@ class HelioWeek(
 )
 
 /**
+ * v8.0: Pluto and its supporting actors (Moon, Mercury, Mars, Saturn). For each actor and each bar: the aspect angle to
+ * Pluto that is in orb (-1 = none) and its orb. actors[k] matches angle[k] and orb[k].
+ */
+class PlutoGrid(val actors: List<PlanetDef>, val angle: Array<IntArray>, val orb: Array<DoubleArray>)
+
+/** v8.0: the week version of PlutoGrid, in 6-hour bars starting at startMs (tightest aspect found inside each bar). */
+class PlutoWeek(val grid: PlutoGrid, val startMs: Long, val barMs: Long)
+
+/** v8.0: where one actor's current aspect to Pluto is (or was) exact. */
+class PlutoExact(val actorName: String, val glyph: String, val angle: Int, val orbNow: Double, val exactMs: Long?)
+
+/**
  * v7.4: where the Moon makes an aspect to one planet, per 5-minute bar. angle = aspect angle in orb (-1 = none),
  * exact = the bar where the aspect is closest to exact.
  */
