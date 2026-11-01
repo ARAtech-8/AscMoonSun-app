@@ -1469,8 +1469,10 @@ object AstroEngine {
 
     // ---------------- v8.0: Pluto and its actors ----------------
 
-    private val PLUTO_ACTOR_NAMES = listOf("Moon", "Mercury", "Mars", "Saturn")
+    private val PLUTO_ACTOR_NAMES = listOf("Moon", "Mercury", "Mars", "Saturn", "Sun")
+    val SATURN_ACTOR_NAMES = listOf("Moon", "Mercury", "Mars", "Pluto", "Sun")   // v8.1: Saturn as the star
     val PLUTO_ACTORS: List<PlanetDef> by lazy { PLUTO_ACTOR_NAMES.map { n -> PLANETS.first { it.name == n } } }
+    private fun actorDefs(names: List<String>): List<PlanetDef> = names.map { n -> PLANETS.first { it.name == n } }
 
     private fun bestAspect(a: Double, b: Double, orbLimit: Double): Pair<Int, Double> {
         val s = sep(a, b)
@@ -1484,10 +1486,13 @@ object AstroEngine {
     }
 
     /** Aspect of each actor (Moon, Mercury, Mars, Saturn) to Pluto on every 5-minute bar of the main series. */
-    fun plutoActorGrid(series: List<SentimentBar>, orbLimit: Double = 3.0): PlutoGrid {
+    fun plutoActorGrid(
+        series: List<SentimentBar>, orbLimit: Double = 3.0,
+        target: String = "Pluto", actorNames: List<String> = PLUTO_ACTOR_NAMES
+    ): PlutoGrid {
         val n = series.size
-        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
-        val actors = PLUTO_ACTORS
+        val pi = PLANETS.indexOfFirst { it.name == target }
+        val actors = actorDefs(actorNames)
         val angle = Array(actors.size) { IntArray(n) { -1 } }
         val orbs = Array(actors.size) { DoubleArray(n) }
         val idx = actors.map { a -> PLANETS.indexOfFirst { it.name == a.name } }
@@ -1503,9 +1508,12 @@ object AstroEngine {
     }
 
     /** The week version: 6-hour bars, each showing the tightest aspect found in six hourly readings. */
-    fun plutoActorWeek(startMs: Long, bars: Int = 28, barMs: Long = 6 * 3_600_000L, orbLimit: Double = 3.0): PlutoWeek {
-        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
-        val actors = PLUTO_ACTORS
+    fun plutoActorWeek(
+        startMs: Long, bars: Int = 28, barMs: Long = 6 * 3_600_000L, orbLimit: Double = 3.0,
+        target: String = "Pluto", actorNames: List<String> = PLUTO_ACTOR_NAMES
+    ): PlutoWeek {
+        val pi = PLANETS.indexOfFirst { it.name == target }
+        val actors = actorDefs(actorNames)
         val idx = actors.map { a -> PLANETS.indexOfFirst { it.name == a.name } }
         val hour = 3_600_000L
         val per = max(1, (barMs / hour).toInt())
@@ -1527,14 +1535,17 @@ object AstroEngine {
     /**
      * For each actor in aspect to Pluto at ms: the aspect, how far from exact it is, and the time of the nearest exact
      * pass (before or after ms). Coarse sampling is enough: Moon hourly +/-2 days, Mercury 2-hourly +/-10 days,
-     * Mars 6-hourly +/-40 days, Saturn daily +/-200 days. exactMs is null if no exact pass is found in that range.
+     * Mars 6-hourly +/-40 days, Sun 6-hourly +/-30 days, Saturn and Pluto daily +/-200 days. exactMs is null if no exact pass is found in that range.
      */
-    fun plutoExactInfo(ms: Long, orbLimit: Double = 3.0): List<PlutoExact> {
-        val pi = PLANETS.indexOfFirst { it.name == "Pluto" }
+    fun plutoExactInfo(
+        ms: Long, orbLimit: Double = 3.0,
+        target: String = "Pluto", actorNames: List<String> = PLUTO_ACTOR_NAMES
+    ): List<PlutoExact> {
+        val pi = PLANETS.indexOfFirst { it.name == target }
         val hour = 3_600_000L
         val day = 24 * hour
         val out = ArrayList<PlutoExact>()
-        for (actor in PLUTO_ACTORS) {
+        for (actor in actorDefs(actorNames)) {
             val ai = PLANETS.indexOfFirst { it.name == actor.name }
             val now = calculatePlanetaryPositions(ms)
             val (angle, orbNow) = bestAspect(now[pi], now[ai], orbLimit)
@@ -1543,6 +1554,7 @@ object AstroEngine {
                 "Moon" -> hour to 2 * day
                 "Mercury" -> 2 * hour to 10 * day
                 "Mars" -> 6 * hour to 40 * day
+                "Sun" -> 6 * hour to 30 * day
                 else -> day to 200 * day
             }
             val n = (range / step).toInt()

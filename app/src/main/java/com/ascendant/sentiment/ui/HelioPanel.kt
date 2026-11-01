@@ -537,7 +537,7 @@ fun PlutoActorStrip(
     inspectedTimeMs: Long,
     view: IntArray,
     zoom: Float,
-    modifier: Modifier = Modifier.fillMaxWidth().height(72.dp)
+    modifier: Modifier = Modifier.fillMaxWidth().height((12 + 15 * grid.actors.size).dp)
 ) {
     if (barCount <= 0 || grid.angle.isEmpty() || grid.angle[0].size != barCount) return
     val selIdx = ((inspectedTimeMs - firstBarMs) / 300_000L).toInt().coerceIn(0, barCount - 1)
@@ -576,7 +576,9 @@ fun PlutoWeekCard(
     inspectedTimeMs: Long,
     nowMs: Long,
     timeZoneId: String,
-    onInspectTime: (Long) -> Unit
+    onInspectTime: (Long) -> Unit,
+    targetName: String = "Pluto",
+    targetGlyph: String = "♇"
 ) {
     val grid = week.grid
     val n = grid.angle[0].size
@@ -595,9 +597,9 @@ fun PlutoWeekCard(
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(BorderDark))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text("♇ PLUTO AND ITS ACTORS · WEEK (6h bars)", color = Slate400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("$targetGlyph ${targetName.uppercase()} AND ITS ACTORS · WEEK (6h bars)", color = Slate400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Lanes: ☽ Moon, ☿ Mercury, ♂ Mars, ♄ Saturn · amber bar = two or more at once ($convBars bars this week)",
+                "Lanes: ${grid.actors.joinToString(", ") { it.glyph + " " + it.name }} · amber bar = two or more at once ($convBars bars this week)",
                 color = Slate400, fontSize = 9.sp, lineHeight = 12.sp
             )
             Spacer(Modifier.height(8.dp))
@@ -605,7 +607,7 @@ fun PlutoWeekCard(
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(112.dp)
+                    .height((22 + 22 * grid.actors.size).dp)
                     .weekScrub(week, n, weekStart, week.barMs, onInspect)
             ) {
                 val left = 42.dp.toPx()
@@ -639,7 +641,7 @@ fun PlutoWeekCard(
             Spacer(Modifier.height(6.dp))
             Text("At the cursor", color = Slate400, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             if (exacts.isEmpty()) {
-                Text("None of the Moon, Mercury, Mars or Saturn is in aspect to Pluto.", color = Slate100, fontSize = 11.sp)
+                Text("None of ${grid.actors.joinToString(", ") { it.name }} is in aspect to $targetName.", color = Slate100, fontSize = 11.sp)
             }
             exacts.forEach { e ->
                 val timing = e.exactMs?.let { m ->
@@ -647,7 +649,7 @@ fun PlutoWeekCard(
                     if (abs(d) < 1_800_000L) "exact now" else if (d > 0) "exact in ${fmtDur(d)}" else "exact ${fmtDur(d)} ago"
                 } ?: "no exact pass nearby"
                 Text(
-                    "${e.glyph} ${e.actorName} ${e.angle}° ♇ · orb %.1f° · $timing".format(e.orbNow),
+                    "${e.glyph} ${e.actorName} ${e.angle}° $targetGlyph · orb %.1f° · $timing".format(e.orbNow),
                     color = HelioAspectColors[e.angle] ?: Slate100, fontSize = 11.sp
                 )
             }
